@@ -16,8 +16,10 @@ To run training without attention, do:
 `python draw.py --working_dir=/tmp/draw --read_attn=False --write_attn=False`
 
 ## Network structure
+![network](../master/assests/attention_network.png)
 
 
 ## Results
+Note that sigma has a big influence on the convergence. There will be gradient vanishing issue for the reader if sigma is too small.
 
 ## ToDO
