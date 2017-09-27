@@ -1,12 +1,11 @@
-# import tensorflow as tf
+import tensorflow as tf
 from tensorflow.examples.tutorials import mnist
-import numpy as np
+from classifier.lenet_slim import lenet
+from reader.glimpse2 import take_a_2d_glimpse
+from utils.viz2 import *
+from utils.utils import creat_dir
 import os
-from utils import *
-from lenet_slim import lenet
-from glimpse_2d import take_a_2d_glimpse
-from glimpse_3d import take_a_3d_glimpse
-
+import numpy as np
 
 
 def main(cfg):
@@ -66,7 +65,7 @@ def main(cfg):
 
     ## Monitor ##
     # saver = tf.train.Saver() # saves variables learned during training
-    logdir, modeldir = creat_dir("drawtf_T{}_n{}".format(num_glimpse, glimpse_size))
+    logdir, modeldir = creat_dir("LeNet_T{}_n{}".format(num_glimpse, glimpse_size))
     saver = tf.train.Saver()
     #saver.restore(sess, "*.ckpt")
     summary_writer = tf.summary.FileWriter(logdir)
@@ -147,7 +146,7 @@ def main(cfg):
             prediction = sess.run(y_hat, feed_dict_test_fix)[img_idx].transpose()
             filename =  '{}/itr{}_pred{}.png'.format(logdir, itr,feed_dict_test_fix[y][img_idx])
             filename =  '{}/itr{}_pred{}.png'.format(logdir, itr,feed_dict_test_fix[y][img_idx])
-            ram_mnist_viz(arr, cy_i - np.ceil(glimpse_size / 2.), cx_i - np.ceil(glimpse_size / 2.), prediction, filename)
+            mnist_viz(arr, cy_i - np.ceil(glimpse_size / 2.), cx_i - np.ceil(glimpse_size / 2.), prediction, filename)
 
         if itr%10000==0:
             sess.run( tf.assign(learning_rate, learning_rate * 0.5) )

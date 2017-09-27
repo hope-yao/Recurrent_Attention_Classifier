@@ -7,8 +7,8 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
 import tensorflow as tf
+
 
 def weight_variable(shape):
   initial = tf.truncated_normal(shape, stddev=0.1)
@@ -26,44 +26,17 @@ def conv2d(x, W):
 
 
 
-def voxnet(images, num_classes=10):
-    """Creates a variant of the LeNet model.
+def voxnet(images, shared_conv_var, num_classes=10):
+    conv1_w = shared_conv_var['conv1_w']
+    conv1_b = shared_conv_var['conv1_b']
+    conv2_w = shared_conv_var['conv2_w']
+    conv2_b = shared_conv_var['conv2_b']
 
-    Note that since the output is a set of 'logits', the values fall in the
-    interval of (-infinity, infinity). Consequently, to convert the outputs to a
-    probability distribution over the characters, one will need to convert them
-    using the softmax function:
-
-        logits = lenet.lenet(images, is_training=False)
-        probabilities = tf.nn.softmax(logits)
-        predictions = tf.argmax(logits, 1)
-
-    Args:
-    images: A batch of `Tensors` of size [batch_size, height, width, channels].
-    num_classes: the number of classes in the dataset.
-    is_training: specifies whether or not we're currently training the model.
-      This variable will determine the behaviour of the dropout layer.
-    dropout_keep_prob: the percentage of activation values that are retained.
-    prediction_fn: a function to get predictions out of logits.
-    scope: Optional variable_scope.
-
-    Returns:
-    logits: the pre-softmax activations, a tensor of size
-      [batch_size, `num_classes`]
-    end_points: a dictionary from components of the network to the corresponding
-      activation.
-    """
     end_points = {}
-
-    num_ch = [16, 32]
     # 3D convolution
-    filter1 = weight_variable([5, 5, 5, 1, num_ch[0]])
-    b_conv1 = bias_variable([num_ch[0]])
-    net = tf.nn.relu(tf.nn.conv3d(input=images, filter=filter1, strides=[1,2,2,2,1], padding='SAME')+b_conv1)
+    net = tf.nn.elu(tf.nn.conv3d(input=images, filter=conv1_w, strides=[1,2,2,2,1], padding='SAME') + conv1_b)
     # 3D convolution
-    filter2 = weight_variable([5, 5, 5, num_ch[0], num_ch[1]])
-    b_conv2 = bias_variable([num_ch[1]])
-    net = tf.nn.relu(tf.nn.conv3d(input=net, filter=filter2, strides=[1,2,2,2,1], padding='SAME')+b_conv2)
+    net = tf.nn.elu(tf.nn.conv3d(input=net, filter=conv2_w, strides=[1,2,2,2,1], padding='SAME') + conv2_b)
 
     # net = tf.nn.max_pool3d(net, 2, 2, name='pool1')
     net = tf.contrib.slim.flatten(net)
@@ -84,7 +57,7 @@ def voxnet(images, num_classes=10):
 if __name__ == '__main__':
     from tqdm import tqdm
     import numpy as np
-    from utils import *
+    from utils.utils import *
 
     batch_size = 128
     n_class = 10
@@ -94,7 +67,14 @@ if __name__ == '__main__':
 
     x = tf.placeholder(tf.float32,shape=(batch_size, vox_size, vox_size, vox_size, ch_in))
     y = tf.placeholder(tf.float32,shape=(batch_size, n_class))
-    end_points = voxnet(x)
+
+    num_ch = [16, 32]
+    conv1_w = weight_variable([5, 5, 5, 1, num_ch[0]])
+    conv1_b = bias_variable([num_ch[0]])
+    conv2_w = weight_variable([5, 5, 5, num_ch[0], num_ch[1]])
+    conv2_b = bias_variable([num_ch[1]])
+    shared_conv_var = {'conv1_w':conv1_w,'conv1_b':conv1_b,'conv2_w':conv2_w,'conv2_b':conv2_b,}
+    end_points = voxnet(x,shared_conv_var)
 
 
     ## LOSS FUNCTION ##
@@ -123,22 +103,7 @@ if __name__ == '__main__':
         tf.summary.scalar("lr/lr", learning_rate),
     ])
 
-    ## get data ##
-    from fuel.datasets.hdf5 import H5PYDataset
-    datafile_hdf5 = './data/ModelNet/ModelNet10.hdf5'
-    train_set = H5PYDataset(datafile_hdf5, which_sets=('train',))
-    handle = train_set.open()
-    test_set = H5PYDataset(datafile_hdf5, which_sets=('test',))
-    handle = test_set.open()
-    train_data = train_set.get_data(handle, slice(0, train_set.num_examples))
-    test_data = test_set.get_data(handle, slice(0, test_set.num_examples))
 
-    x_train = train_data[0].reshape((train_data[0].shape[0],32,32,32,1))
-    y_train = np.zeros((train_data[1].shape[0], 10))
-    y_train[np.arange(train_data[1].shape[0]), train_data[1][:, 0] - 1] = 1
-    x_test = test_data[0].reshape((test_data[0].shape[0],32,32,32,1))
-    y_test = np.zeros((test_data[1].shape[0], 10))
-    y_test[np.arange(test_data[1].shape[0]), test_data[1][:, 0] - 1] = 1
 
     ## training starts ###
     FLAGS = tf.app.flags.FLAGS
@@ -150,6 +115,14 @@ if __name__ == '__main__':
     sess = tf.Session(config=tfconfig)
     init = tf.global_variables_initializer()
     sess.run(init)
+
+    import h5py
+    filename = './data/ModelNet/ModelNet10.hdf5'
+    f = h5py.File(filename, 'r')
+    x_test = np.asarray(f[f.keys()[0]])
+    x_train = np.asarray(f[f.keys()[1]])
+    y_test = np.asarray(f[f.keys()[2]])
+    y_train = np.asarray(f[f.keys()[3]])
 
     count = 0
     it_per_ep = int( len(x_train) / batch_size )

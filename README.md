@@ -15,6 +15,11 @@ To run training without attention, do:
 
 `python draw.py --working_dir=/tmp/draw --read_attn=False --write_attn=False`
 
+To download the preprocessed ModelNet10 dataset used in this code, do:
+```
+$ wget
+```
+
 ## Network structure
 ![network](../master/assests/attention_network.png)
 
