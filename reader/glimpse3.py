@@ -9,7 +9,7 @@ eps=1e-8 # epsilon for numerical stability
 
 ## BUILD MODEL ##
 def attn_window_const_gamma(loc, read_n, img_size, delta_, sigma_):
-    batch_size = loc.shape[0].value
+    batch_size = loc._shape[0].value
     delta = delta_*tf.ones((batch_size,1), 'float32')
     sigma2 = sigma_*tf.ones((batch_size,1), 'float32')
     gx_, gy_, gz_ = tf.split(loc,3,1)
@@ -68,7 +68,7 @@ def write_attn_const_gamma(glimpse, Fx, Fy, Fz):
 
 
 def take_a_3d_glimpse(x, loc, read_n, delta = 1.0, sigma = 1.0):
-    img_size = x.shape[1].value
+    img_size = x._shape[1].value
     Fx, Fy, Fz = attn_window_const_gamma( loc, read_n, img_size, delta_=delta, sigma_=sigma)
     glimpse = read_attn_const_gamma(x, Fx, Fy, Fz)
     canvase = write_attn_const_gamma(glimpse, Fx, Fy, Fz)

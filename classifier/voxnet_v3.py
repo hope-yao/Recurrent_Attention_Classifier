@@ -31,23 +31,19 @@ def voxnet(images, shared_conv_var, num_classes=10, is_training=False):
     conv1_b = shared_conv_var['conv1_b']
     conv2_w = shared_conv_var['conv2_w']
     conv2_b = shared_conv_var['conv2_b']
-    conv3_w = shared_conv_var['conv3_w']
-    conv3_b = shared_conv_var['conv3_b']
-
 
     end_points = {}
     # 3D convolution
     net = tf.nn.elu(tf.nn.conv3d(input=images, filter=conv1_w, strides=[1,2,2,2,1], padding='SAME') + conv1_b)
     net = tf.nn.elu(tf.nn.conv3d(input=net, filter=conv2_w, strides=[1,2,2,2,1], padding='SAME') + conv2_b)
-    net = tf.nn.elu(tf.nn.conv3d(input=net, filter=conv3_w, strides=[1,2,2,2,1], padding='SAME') + conv3_b)
 
     # net = tf.nn.max_pool3d(net, 2, 2, name='pool1')
     net = tf.contrib.slim.flatten(net)
     end_points['Flatten'] = net
 
-    mid_output = net = tf.contrib.slim.fully_connected(net, 256, scope='fc3')
-    net = tf.contrib.slim.dropout(net, 0.5, is_training=is_training,
-                       scope='dropout3')
+    mid_output = net = tf.contrib.slim.fully_connected(net, 128, scope='fc3')
+    # net = tf.contrib.slim.dropout(net, 0.5, is_training=is_training,
+    #                    scope='dropout3')
     logits = tf.contrib.slim.fully_connected(net, num_classes, activation_fn=None,
                                   scope='fc4')
 
@@ -77,13 +73,22 @@ if __name__ == '__main__':
     num_ch = [16, 32, 64]
     conv1_w = weight_variable([5, 5, 5, 1, num_ch[0]])
     conv1_b = bias_variable([num_ch[0]])
+    conv11_w = weight_variable([5, 5, 5, num_ch[0], num_ch[0]])
+    conv11_b = bias_variable([num_ch[0]])
     conv2_w = weight_variable([5, 5, 5, num_ch[0], num_ch[1]])
     conv2_b = bias_variable([num_ch[1]])
+    conv21_w = weight_variable([5, 5, 5, num_ch[1], num_ch[1]])
+    conv21_b = bias_variable([num_ch[1]])
     conv3_w = weight_variable([5, 5, 5, num_ch[1], num_ch[2]])
     conv3_b = bias_variable([num_ch[2]])
+    conv31_w = weight_variable([5, 5, 5, num_ch[2], num_ch[2]])
+    conv31_b = bias_variable([num_ch[2]])
     shared_conv_var = {'conv1_w':conv1_w, 'conv1_b':conv1_b,
+                       'conv11_w': conv11_w, 'conv11_b': conv11_b,
                        'conv2_w':conv2_w, 'conv2_b':conv2_b,
-                       'conv3_w':conv3_w, 'conv3_b':conv3_b,}
+                       'conv21_w':conv21_w, 'conv21_b':conv21_b,
+                       'conv3_w':conv3_w, 'conv3_b':conv3_b,
+                       'conv31_w': conv31_w, 'conv31_b': conv31_b,}
     end_points = voxnet(x,shared_conv_var)
 
 
@@ -105,8 +110,8 @@ if __name__ == '__main__':
     overall_acc, overall_acc_update = tf.metrics.accuracy(labels=tf.argmax(y,1), predictions=tf.argmax(end_points['Predictions'],1))
     err = 1. - overall_acc
     # saver = tf.train.Saver() # saves variables learned during training
-    logdir, modeldir = creat_dir("voxnet_lr{}".format(lr))
-    copyfile('./classifier/voxnet.py', modeldir + '/' + 'voxnet.py')
+    logdir, modeldir = creat_dir("voxnet_v3_lr{}".format(lr))
+    copyfile('./classifier/voxnet_v3.py', modeldir + '/' + 'voxnet_v3.py')
     saver = tf.train.Saver()
     #saver.restore(sess, "*.ckpt")
     summary_writer = tf.summary.FileWriter(logdir)

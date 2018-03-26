@@ -4,6 +4,7 @@ from reader.glimpse3 import take_a_3d_glimpse
 from utils.utils import creat_dir
 from tqdm import tqdm
 import numpy as np
+from shutil import copyfile
 
 
 def main(cfg):
@@ -19,6 +20,7 @@ def main(cfg):
     ## MODEL PARAMETERS ##
     x = tf.placeholder(tf.float32,shape=(batch_size, vox_size, vox_size, vox_size, 1))
     y = tf.placeholder(tf.float32,shape=(batch_size, n_class))
+    is_training = tf.placeholder(tf.bool,())
 
     ## STATE VARIABLES ##
     rr = []
@@ -26,12 +28,16 @@ def main(cfg):
     loc=[tf.zeros((batch_size,img_dim))] #starting with a point at the cornor
 
     ## Build model ##
-    num_ch = [16, 32]
+    num_ch = [16, 32, 64]
     conv1_w = weight_variable([5, 5, 5, 1, num_ch[0]])
     conv1_b = bias_variable([num_ch[0]])
     conv2_w = weight_variable([5, 5, 5, num_ch[0], num_ch[1]])
     conv2_b = bias_variable([num_ch[1]])
-    shared_conv_var = {'conv1_w': conv1_w, 'conv1_b': conv1_b, 'conv2_w': conv2_w, 'conv2_b': conv2_b, }
+    conv3_w = weight_variable([5, 5, 5, num_ch[1], num_ch[2]])
+    conv3_b = bias_variable([num_ch[2]])
+    shared_conv_var = {'conv1_w': conv1_w, 'conv1_b': conv1_b,
+                       'conv2_w': conv2_w, 'conv2_b': conv2_b,
+                       'conv3_w': conv3_w, 'conv3_b': conv3_b}
 
     DO_SHARE=None # workaround for variable_scope(reuse=True)
     sigma = 0.3
@@ -53,9 +59,11 @@ def main(cfg):
         DO_SHARE = True# workaround for variable_scope(reuse=True)
 
     ## LOSS FUNCTION ##
-    loss_classify = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=log_y_hat[:,:,-1]))
-    cost = loss_classify #+ loss_loc
-    err = [tf.reduce_mean(tf.abs(y-y_hat[:,:,i])) for i in range(num_glimpse)]
+    loss_classify = []
+    for i in range(num_glimpse):
+        loss_classify += [tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=log_y_hat[:,:,i]))]
+    cost = tf.reduce_sum(loss_classify)#+ loss_loc
+    # err = [tf.reduce_mean(tf.abs(y-y_hat[:,:,i])) for i in range(num_glimpse)]
 
     ## OPTIMIZER ##
     learning_rate = tf.Variable(lr) # learning rate for optimizer
@@ -68,8 +76,24 @@ def main(cfg):
 
 
     ## Monitor ##
+    # overall_cost = []
+    # overall_cost_update = []
+    # for i in range(num_glimpse):
+    #     overall_acc, overall_acc_update = tf.metrics.accuracy(labels=y, predictions=y_hat[:,:,i])
+    #     overall_cost += [1.-overall_acc]
+    #     overall_cost_update+= [overall_acc_update]
+    overall_err = []
+    overall_err_update = []
+    for i in range(num_glimpse):
+        overall_acc, overall_acc_update = tf.metrics.accuracy(labels=tf.argmax(y,1), predictions=tf.argmax(y_hat[:,:,i],1))
+        overall_err += [1.-overall_acc]
+        overall_err_update += [overall_acc_update]
+
     # saver = tf.train.Saver() # saves variables learned during training
     logdir, modeldir = creat_dir("VoxNet_T{}_n{}".format(num_glimpse, glimpse_size))
+    copyfile('./trainer/train_rac3.py', modeldir + '/' + 'train_rac3.py')
+    copyfile('./classifier/voxnet.py', modeldir + '/' + 'voxnet.py')
+
     saver = tf.train.Saver()
     #saver.restore(sess, "*.ckpt")
     summary_writer = tf.summary.FileWriter(logdir)
@@ -79,9 +103,9 @@ def main(cfg):
     grad4 = tf.reduce_mean(tf.abs(tf.gradients(cost, tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="VoxNet/fc4/weights:0")[0])[0]))
     grad5 = tf.reduce_mean(tf.abs(tf.gradients(cost, tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="reader/fc1/weights:0")[0])[0]))
     grad6 = tf.reduce_mean(tf.abs(tf.gradients(cost, tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="reader/fc2/weights:0")[0])[0]))
-    summary_op = tf.summary.merge([
-        tf.summary.scalar("loss/loss", cost),
-        tf.summary.scalar("err/err_last", err[-1]),
+    summary_op_train = tf.summary.merge([
+        tf.summary.scalar("loss/loss_train", cost),
+        tf.summary.scalar("loss/err_last_train", overall_err[-1]),
         tf.summary.scalar("lr/lr", learning_rate),
         tf.summary.scalar("grad/grad1", grad1),
         tf.summary.scalar("grad/grad2", grad2),
@@ -91,6 +115,10 @@ def main(cfg):
         tf.summary.scalar("grad/grad6", grad6),
     ])
 
+    summary_op_test = tf.summary.merge([
+        tf.summary.scalar("loss/loss_test", cost),
+        tf.summary.scalar("loss/err_last_test", overall_err[-1]),
+    ])
 
     ## preparing data #
     import h5py
@@ -109,29 +137,43 @@ def main(cfg):
     )
     tfconfig.gpu_options.allow_growth = True
     sess = tf.Session(config=tfconfig)
-    init = tf.global_variables_initializer()
-    sess.run(init)
+    sess.run(tf.global_variables_initializer())
+    sess.run(tf.local_variables_initializer())
     count = 0
     for epoch in range(5000):
         it_per_ep = len(x_train) / batch_size
         for i in tqdm(range(it_per_ep)):
             x_input = x_train[i*batch_size:(i + 1)*batch_size]
             y_input = y_train[i*batch_size:(i + 1)*batch_size]
-            feed_dict_train={x:x_input, y:y_input}
+            feed_dict_train={x:x_input, y:y_input, is_training:True}
             sess.run(train_op,feed_dict_train)
 
             if count%50==0:
-                train_result = sess.run([cost]+err, feed_dict_train)
-                rand_idx = np.random.random_integers(0,len(x_test)-1,size=batch_size)
-                x_input = x_test[rand_idx]
-                y_input = y_test[rand_idx]
-                feed_dict_test = {x: x_input, y: y_input}
-                test_result = sess.run([cost]+err, feed_dict_test)
-                print("iter=%d : train_cost: %f train_err_last: %f test_cost: %f test_err_last: %f" %
-                      (count, train_result[0], train_result[-1], test_result[0], test_result[-1]))
-                summary = sess.run(summary_op, feed_dict_train)
-                summary_writer.add_summary(summary, count)
+                sess.run(tf.local_variables_initializer())
+                for ii in range(len(x_test) / batch_size):
+                    x_input = x_test[ii * batch_size:(ii + 1) * batch_size]
+                    y_input = y_test[ii * batch_size:(ii + 1) * batch_size]
+                    feed_dict_test = {x: x_input, y: y_input, is_training: False}
+                    sess.run(overall_err_update, feed_dict_test)
+                summary_test = sess.run(summary_op_test, feed_dict_test)
+                summary_writer.add_summary(summary_test, count)
+                for ii in range(len(x_train) / batch_size):
+                    x_input = x_train[ii * batch_size:(ii + 1) * batch_size]
+                    y_input = y_train[ii * batch_size:(ii + 1) * batch_size]
+                    feed_dict_train = {x: x_input, y: y_input, is_training: False}
+                    sess.run(overall_err_update, feed_dict_train)
+                summary_train = sess.run(summary_op_train, feed_dict_train)
+                summary_writer.add_summary(summary_train, count)
                 summary_writer.flush()
+
+                # train_cost = sess.run([cost]+err, feed_dict_train)
+                # rand_idx = np.random.random_integers(0,len(x_test)-1,size=batch_size)
+                # x_input = x_test[rand_idx]
+                # y_input = y_test[rand_idx]
+                # feed_dict_test = {x: x_input, y: y_input, is_training:False}
+                # test_cost = sess.run(cost, feed_dict_test)
+                # print("iter=%d : train_cost: %f train_err_last: %f test_cost: %f test_err_last: %f" %
+                #       (count, train_cost, overall_train_err[-1], test_cost, overall_test_err[-1]))
 
                 # if itr == 0:
                 #     feed_dict_train_fix = feed_dict_train
@@ -157,8 +199,8 @@ def main(cfg):
                 # filename =  '{}/itr{}_pred{}.png'.format(logdir, itr,feed_dict_test_fix[y][img_idx])
                 # ram_mnist_viz(arr, cy_i - np.ceil(glimpse_size / 2.), cx_i - np.ceil(glimpse_size / 2.), prediction, filename)
 
-            if count%5000==1:
-                sess.run( tf.assign(learning_rate, learning_rate * 0.5) )
+            # if count%5000==1:
+            #     sess.run( tf.assign(learning_rate, learning_rate * 0.5) )
 
             if count%10000==1:
                 snapshot_name = "%s_%s" % ('experiment', str(count))
@@ -173,9 +215,9 @@ if __name__ == "__main__":
            'img_dim': 3,
            'vox_size': 32,
            'n_class': 10,
-           'num_glimpse': 8,
-           'glimpse_size': 3,
-           'data_path': '../data/ModelNet',
-           'lr': 1e-3,
+           'num_glimpse': 5,
+           'glimpse_size': 5,
+           'data_path': './data/ModelNet',
+           'lr': 1e-4,
            }
     main(cfg)

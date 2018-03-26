@@ -68,13 +68,13 @@ def creat_dir(network_type):
     """code from on InfoGAN"""
     now = datetime.now(dateutil.tz.tzlocal())
     timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
-    root_log_dir = "../saved_logs/" + network_type
+    root_log_dir = "./saved_logs/" + network_type
     exp_name = network_type + "_%s" % timestamp
     log_dir = os.path.join(root_log_dir, exp_name)
 
     now = datetime.now(dateutil.tz.tzlocal())
     timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
-    root_model_dir = "../saved_models/" + network_type
+    root_model_dir = "./saved_models/" + network_type
     exp_name = network_type + "_%s" % timestamp
     model_dir = os.path.join(root_model_dir, exp_name)
 

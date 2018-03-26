@@ -49,9 +49,11 @@ def main(cfg):
         DO_SHARE = True# workaround for variable_scope(reuse=True)
 
     ## LOSS FUNCTION ##
-    loss_classify = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=log_y_hat[:,:,-1]))
-    cost = loss_classify #+ loss_loc
-    err = [tf.reduce_mean(tf.abs(y-y_hat[:,:,i])) for i in range(num_glimpse)]
+    loss_classify = []
+    for i in range(num_glimpse):
+        loss_classify += [tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=log_y_hat[:,:,i]))]
+    cost = tf.reduce_sum(loss_classify)#+ loss_loc
+    # err = [tf.reduce_mean(tf.abs(y-y_hat[:,:,i])) for i in range(num_glimpse)]
 
     ## OPTIMIZER ##
     learning_rate = tf.Variable(lr) # learning rate for optimizer
@@ -64,6 +66,13 @@ def main(cfg):
 
 
     ## Monitor ##
+    overall_err = []
+    overall_err_update = []
+    for i in range(num_glimpse):
+        overall_acc, overall_acc_update = tf.metrics.accuracy(labels=tf.argmax(y,1), predictions=tf.argmax(y_hat[:,:,i],1))
+        overall_err += [1.-overall_acc]
+        overall_err_update += [overall_acc_update]
+
     # saver = tf.train.Saver() # saves variables learned during training
     logdir, modeldir = creat_dir("LeNet_T{}_n{}".format(num_glimpse, glimpse_size))
     saver = tf.train.Saver()
@@ -75,9 +84,9 @@ def main(cfg):
     grad4 = tf.reduce_mean(tf.abs(tf.gradients(cost, tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="LeNet/fc4/weights:0")[0])[0]))
     grad5 = tf.reduce_mean(tf.abs(tf.gradients(cost, tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="reader/fc1/weights:0")[0])[0]))
     grad6 = tf.reduce_mean(tf.abs(tf.gradients(cost, tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="reader/fc2/weights:0")[0])[0]))
-    summary_op = tf.summary.merge([
-        tf.summary.scalar("loss/loss", cost),
-        tf.summary.scalar("err/err_last", err[-1]),
+    summary_op_train = tf.summary.merge([
+        tf.summary.scalar("loss/loss_train", cost),
+        tf.summary.scalar("loss/err_last_train", overall_err[-1]),
         tf.summary.scalar("lr/lr", learning_rate),
         tf.summary.scalar("grad/grad1", grad1),
         tf.summary.scalar("grad/grad2", grad2),
@@ -87,6 +96,10 @@ def main(cfg):
         tf.summary.scalar("grad/grad6", grad6),
     ])
 
+    summary_op_test = tf.summary.merge([
+        tf.summary.scalar("loss/loss_test", cost),
+        tf.summary.scalar("loss/err_last_test", overall_err[-1]),
+    ])
 
     ## preparing data #
     data_directory = os.path.join(data_path)
@@ -113,16 +126,30 @@ def main(cfg):
         results = sess.run(train_op,feed_dict_train)
 
         if itr%100==0:
-            x_test, y_test = test_data.next_batch(batch_size)  # xtrain is (batch_size x img_size)
-            x_test = np.reshape(x_test, (x_test.shape[0], img_size, img_size))
-            feed_dict_test = {x: x_test, y: y_test}
-            train_result = sess.run([cost]+err, feed_dict_train)
-            test_result = sess.run([cost]+err, feed_dict_test)
-            print("iter=%d : train_cost: %f train_err_last: %f test_cost: %f test_err_last: %f" %
-                  (itr, train_result[0], train_result[-1], test_result[0], test_result[-1]))
-            summary = sess.run(summary_op, feed_dict_train)
-            summary_writer.add_summary(summary, itr)
+            sess.run(tf.local_variables_initializer())
+            for ii in range(100):
+                x_test, y_test = test_data.next_batch(batch_size)  # xtrain is (batch_size x img_size)
+                feed_dict_test = {x: np.reshape(x_test, (x_test.shape[0], img_size, img_size)), y: y_test}
+                sess.run(overall_err_update, feed_dict_test)
+            summary_test = sess.run(summary_op_test, feed_dict_test)
+            summary_writer.add_summary(summary_test, itr)
+            for ii in range(100):
+                x_train, y_train = train_data.next_batch(batch_size)  # xtrain is (batch_size x img_size)
+                feed_dict_train = {x: np.reshape(x_test, (x_test.shape[0], img_size, img_size)), y: y_test}
+                sess.run(overall_err_update, feed_dict_train)
+            summary_train = sess.run(summary_op_train, feed_dict_train)
+            summary_writer.add_summary(summary_train, itr)
             summary_writer.flush()
+            # x_test, y_test = test_data.next_batch(batch_size)  # xtrain is (batch_size x img_size)
+            # x_test = np.reshape(x_test, (x_test.shape[0], img_size, img_size))
+            # feed_dict_test = {x: x_test, y: y_test}
+            # train_result = sess.run([cost]+err, feed_dict_train)
+            # test_result = sess.run([cost]+err, feed_dict_test)
+            # print("iter=%d : train_cost: %f train_err_last: %f test_cost: %f test_err_last: %f" %
+            #       (itr, train_result[0], train_result[-1], test_result[0], test_result[-1]))
+            # summary = sess.run(summary_op, feed_dict_train)
+            # summary_writer.add_summary(summary, itr)
+            # summary_writer.flush()
 
             if itr == 0:
                 feed_dict_train_fix = feed_dict_train
@@ -148,8 +175,8 @@ def main(cfg):
             filename =  '{}/itr{}_pred{}.png'.format(logdir, itr,feed_dict_test_fix[y][img_idx])
             mnist_viz(arr, cy_i - np.ceil(glimpse_size / 2.), cx_i - np.ceil(glimpse_size / 2.), prediction, filename)
 
-        if itr%10000==0:
-            sess.run( tf.assign(learning_rate, learning_rate * 0.5) )
+        # if itr%10000==0:
+        #     sess.run( tf.assign(learning_rate, learning_rate * 0.5) )
 
         if itr%10000==0:
             snapshot_name = "%s_%s" % ('experiment', str(itr))
@@ -166,6 +193,6 @@ if __name__ == "__main__":
            'num_glimpse': 5,
            'glimpse_size': 3,
            'data_path': './data/mnist',
-           'lr': 1e-3
+           'lr': 1e-4
            }
     main(cfg)

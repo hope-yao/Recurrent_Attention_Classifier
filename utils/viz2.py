@@ -47,9 +47,11 @@ def mnist_viz(arr,cx_i,cy_i,y,filename):
     from matplotlib.patches import Rectangle
     mnist = [0,1,2,3,4,5,6,7,8,9]
     num_glimpse = arr.shape[0]
-    fig = plt.figure(figsize=(6*num_glimpse,4.5*num_glimpse))
-    gs = gridspec.GridSpec(2,num_glimpse,height_ratios=[1]*num_glimpse+[2]*num_glimpse,
-                           width_ratios=[1]*num_glimpse+[3]*num_glimpse)
+    # fig = plt.figure(figsize=(6*num_glimpse,4.5*num_glimpse))
+    # gs = gridspec.GridSpec(2,num_glimpse,height_ratios=[1]*num_glimpse+[2]*num_glimpse,
+    #                        width_ratios=[1]*num_glimpse+[3]*num_glimpse)
+    fig = plt.figure(figsize=(6*1,4.5*1))
+    gs = gridspec.GridSpec(2,num_glimpse)
 
     for i in range(num_glimpse):
         ax0=plt.subplot(gs[i])

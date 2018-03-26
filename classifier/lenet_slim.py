@@ -19,8 +19,11 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-
+from utils.utils import creat_dir
+from tensorflow.examples.tutorials import mnist
+import numpy as np
 slim = tf.contrib.slim
+import os
 
 
 def lenet(images, num_classes=10, is_training=False,
@@ -92,3 +95,111 @@ def lenet_arg_scope(weight_decay=0.0):
       weights_initializer=tf.truncated_normal_initializer(stddev=0.1),
       activation_fn=tf.nn.relu) as sc:
     return sc
+
+
+def main(cfg):
+    img_size = cfg['img_size']
+    img_dim = cfg['img_dim']
+    batch_size = cfg['batch_size']
+    num_glimpse = cfg['num_glimpse']
+    glimpse_size = cfg['glimpse_size']
+    data_path = cfg['data_path']
+    lr = cfg['lr']
+    n_class = cfg['n_class']
+
+    x = tf.placeholder(tf.float32,shape=(batch_size, img_size, img_size,1))
+    y = tf.placeholder(tf.float32,shape=(batch_size, n_class))
+    mid_output, end_points = lenet(x, num_classes=10, is_training=True,
+                                   dropout_keep_prob=0.99,
+                                   scope='LeNet')
+    ## LOSS FUNCTION ##
+    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=end_points['Logits']))
+
+    ## OPTIMIZER ##
+    learning_rate = tf.Variable(lr) # learning rate for optimizer
+    optimizer=tf.train.AdamOptimizer(learning_rate, beta1=0.5)
+    grads=optimizer.compute_gradients(cost)
+    # for i,(g,v) in enumerate(grads):
+    #     if g is not None:
+    #         grads[i]=(tf.clip_by_norm(g,5),v) # clip gradients
+    train_op=optimizer.apply_gradients(grads)
+
+
+    ## Monitor ##
+    overall_acc, overall_acc_update = tf.metrics.accuracy(labels=tf.argmax(y,1), predictions=tf.argmax(end_points['Predictions'],1))
+    overall_err = 1.-overall_acc
+    overall_err_update = overall_acc_update
+
+    # saver = tf.train.Saver() # saves variables learned during training
+    logdir, modeldir = creat_dir("LeNet")
+    saver = tf.train.Saver()
+    #saver.restore(sess, "*.ckpt")
+    summary_writer = tf.summary.FileWriter(logdir)
+    summary_op_train = tf.summary.merge([
+        tf.summary.scalar("loss/loss_train", cost),
+        tf.summary.scalar("loss/err_last_train", overall_err),
+        tf.summary.scalar("lr/lr", learning_rate),
+    ])
+
+    summary_op_test = tf.summary.merge([
+        tf.summary.scalar("loss/loss_test", cost),
+        tf.summary.scalar("loss/err_last_test", overall_err),
+    ])
+
+    ## preparing data #
+    data_directory = os.path.join(data_path)
+    if not os.path.exists(data_directory ):
+        os.makedirs(data_directory)
+    train_data = mnist.input_data.read_data_sets(data_directory, one_hot=True).train # binarized (0-1) mnist data
+    test_data = mnist.input_data.read_data_sets(data_directory, one_hot=True).test # binarized (0-1) mnist data
+
+    ## training starts ###
+    FLAGS = tf.app.flags.FLAGS
+    tfconfig = tf.ConfigProto(
+        allow_soft_placement=True,
+        log_device_placement=True,
+    )
+    tfconfig.gpu_options.allow_growth = True
+    sess = tf.Session(config=tfconfig)
+    init = tf.global_variables_initializer()
+    sess.run(init)
+    train_iters=500000
+    for itr in range(train_iters):
+        x_train,y_train = train_data.next_batch(batch_size) # xtrain is (batch_size x img_size)
+        x_train = np.reshape(x_train,(x_train.shape[0],img_size,img_size,1))
+        feed_dict_train={x:x_train, y:y_train}
+        results = sess.run(train_op,feed_dict_train)
+
+        if itr%100==0:
+            sess.run(tf.local_variables_initializer())
+            for ii in range(100):
+                x_test, y_test = test_data.next_batch(batch_size)  # xtrain is (batch_size x img_size)
+                feed_dict_test = {x: np.reshape(x_test, (x_test.shape[0], img_size, img_size, 1)), y: y_test}
+                sess.run(overall_err_update, feed_dict_test)
+            summary_test = sess.run(summary_op_test, feed_dict_test)
+            summary_writer.add_summary(summary_test, itr)
+            for ii in range(100):
+                x_train, y_train = train_data.next_batch(batch_size)  # xtrain is (batch_size x img_size)
+                feed_dict_train = {x: np.reshape(x_test, (x_test.shape[0], img_size, img_size, 1)), y: y_test}
+                sess.run(overall_err_update, feed_dict_train)
+            summary_train = sess.run(summary_op_train, feed_dict_train)
+            summary_writer.add_summary(summary_train, itr)
+            summary_writer.flush()
+
+        if itr%10000==0:
+            snapshot_name = "%s_%s" % ('experiment', str(itr))
+            fn = saver.save(sess, "%s/%s.ckpt" % (modeldir, snapshot_name))
+            print("Model saved in file: %s" % fn)
+
+
+if __name__ == '__main__':
+    cfg = {'batch_size': 128,
+           'img_dim': 2,
+           'img_size': 28,
+           'n_class': 10,
+           'num_glimpse': 5,
+           'glimpse_size': 3,
+           'data_path': './data/mnist',
+           'lr': 1e-3
+           }
+    main(cfg)

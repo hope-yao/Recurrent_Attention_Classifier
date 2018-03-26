@@ -1,6 +1,7 @@
 # draw
 ![acc](../master/assests/rac_acc.png)
 
+tensorflow-gpu == 1.0.1
 ## Usage
 
 `python draw.py --data_dir=/tmp/draw` downloads the binarized MNIST dataset to /tmp/draw/mnist and trains the DRAW model with attention enabled for both reading and writing. After training, output data is written to `/tmp/draw/draw_data.npy`
